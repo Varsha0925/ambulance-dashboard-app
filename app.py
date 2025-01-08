@@ -8,102 +8,89 @@ app = Flask(__name__)
 # API Keys
 TRAFFIC_API_KEY = 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM'
 WEATHER_API_KEY = '48e41d4567a6897feb0096632fdc91c8'
+GEOCODING_API_KEY = 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM'
 
 # API Endpoints
 TRAFFIC_API_URL = 'https://maps.googleapis.com/maps/api/directions/json'
 WEATHER_API_URL = 'https://api.openweathermap.org/data/2.5/weather'
+GEOCODING_API_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
 
-# Sample Graph for Routing
+# Sample Graph for Vijayawada Map with Hospitals
 G = nx.Graph()
-G.add_edge('A', 'B', weight=1)
-G.add_edge('B', 'C', weight=2)
-G.add_edge('A', 'D', weight=4)
-G.add_edge('C', 'D', weight=1)
+locations = {
+    'Accident Site': (16.5062, 80.6480),
+    'Hospital 1': (16.5101, 80.6350),
+    'Hospital 2': (16.5211, 80.6450),
+    'Hospital 3': (16.4990, 80.6570)
+}
+
+# Add edges with default weights
+G.add_edge('Accident Site', 'Hospital 1', weight=1)
+G.add_edge('Accident Site', 'Hospital 2', weight=2)
+G.add_edge('Accident Site', 'Hospital 3', weight=1.5)
+G.add_edge('Hospital 1', 'Hospital 2', weight=1)
+G.add_edge('Hospital 2', 'Hospital 3', weight=1.2)
 
 
-# 1️⃣ Real-Time Traffic Data Fetching
+# 📍 Real-Time Traffic Data
 def get_realtime_traffic_data(origin, destination):
     try:
         response = requests.get(
             TRAFFIC_API_URL,
-            params={
-                'origin': origin,
-                'destination': destination,
-                'key': TRAFFIC_API_KEY
-            }
+            params={'origin': origin, 'destination': destination, 'key': TRAFFIC_API_KEY}
         )
         if response.status_code == 200:
             data = response.json()
             routes = data.get('routes', [])
             if routes:
-                traffic_duration = routes[0]['legs'][0]['duration_in_traffic']['value']
-                return traffic_duration / 60  # Return minutes
-            else:
-                print("No route found.")
-                return 10  # Default weight
-        else:
-            print("Traffic API Error:", response.status_code)
-            return 10  # Default weight
+                return routes[0]['legs'][0]['duration_in_traffic']['value'] / 60  # Return in minutes
+        return 10
     except Exception as e:
         print("Traffic API Exception:", e)
         return 10
 
 
-# 2️⃣ Real-Time Weather Data Fetching
+# 🌦️ Real-Time Weather Data
 def get_realtime_weather_data(city):
     try:
         response = requests.get(
             WEATHER_API_URL,
-            params={
-                'q': city,
-                'appid': WEATHER_API_KEY,
-                'units': 'metric'
-            }
+            params={'q': city, 'appid': WEATHER_API_KEY, 'units': 'metric'}
         )
         if response.status_code == 200:
             data = response.json()
-            weather_condition = data['weather'][0]['main']
-            return weather_condition
-        else:
-            print("Weather API Error:", response.status_code)
-            return 'Clear'
+            return data['weather'][0]['main']
     except Exception as e:
         print("Weather API Exception:", e)
-        return 'Clear'
+    return 'Clear'
 
 
-# 3️⃣ Dynamic Route Optimization
-def optimize_route(source, destination, city):
-    weather_condition = get_realtime_weather_data(city)
-    traffic_penalty = get_realtime_traffic_data(source, destination)
+# 🗺️ Optimize Route
+def optimize_route(accident_site, city):
+    weather = get_realtime_weather_data(city)
+    routes = {}
 
-    # Adjust graph weights dynamically based on traffic and weather
-    for edge in G.edges:
-        base_weight = 1.0  # Default weight
-        weather_penalty = 1.5 if weather_condition != 'Clear' else 1.0
-        G[edge[0]][edge[1]]['weight'] = base_weight * traffic_penalty * weather_penalty
+    for hospital in ['Hospital 1', 'Hospital 2', 'Hospital 3']:
+        traffic_penalty = get_realtime_traffic_data(accident_site, hospital)
+        weather_penalty = 1.5 if weather != 'Clear' else 1.0
+        G[accident_site][hospital]['weight'] *= traffic_penalty * weather_penalty
 
-    try:
-        path = nx.shortest_path(G, source=source, target=destination, weight='weight')
-        return path
-    except nx.NetworkXNoPath:
-        return []
+        path = nx.shortest_path(G, source=accident_site, target=hospital, weight='weight')
+        routes[hospital] = path
+
+    best_hospital = min(routes, key=lambda h: nx.shortest_path_length(G, accident_site, h, weight='weight'))
+    return routes[best_hospital]
 
 
-# 4️⃣ API Endpoint for Route Optimization
+# 🚑 API Endpoint
 @app.route('/optimize', methods=['GET'])
 def get_route():
-    source = request.args.get('source')
-    destination = request.args.get('destination')
+    accident_location = request.args.get('source', 'Accident Site')
     city = request.args.get('city', 'Vijayawada')
 
-    if not source or not destination:
-        return jsonify({'error': 'Source and Destination are required'}), 400
-
-    route = optimize_route(source, destination, city)
+    route = optimize_route(accident_location, city)
     return jsonify({'route': route})
 
 
-# 5️⃣ Run the Flask App
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
