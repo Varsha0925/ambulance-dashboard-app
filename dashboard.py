@@ -4,40 +4,42 @@ import requests
 import os
 
 app = dash.Dash(__name__)
-app.title = "🚑 Ambulance Route Optimization"
+app.title = "🚑 Real-Time Ambulance Optimization"
 server = app.server
 
 API_URL = os.getenv('API_URL', 'http://127.0.0.1:5000/optimize')
 
+# Layout
 app.layout = html.Div([
-    html.H1("🚑 Ambulance Route Optimization", style={'textAlign': 'center'}),
+    html.H1("🚑 Real-Time Ambulance Route Optimization", style={'textAlign': 'center'}),
     html.Div([
-        html.Label("Accident Location:"),
-        dcc.Input(id='source-input', type='text', placeholder='Enter Accident Location', debounce=True),
+        html.Label("Accident Location Name:"),
+        dcc.Input(id='location-input', type='text', placeholder='Enter Accident Location'),
         html.Label("City:"),
-        dcc.Input(id='city-input', type='text', placeholder='Enter City', value='Vijayawada', debounce=True),
-        html.Button('Find Nearest Hospital', id='optimize-button', n_clicks=0, style={'marginTop': '10px'})
+        dcc.Input(id='city-input', type='text', placeholder='Enter City', value='Vijayawada'),
+        html.Button('Find Route', id='optimize-button', n_clicks=0)
     ]),
-    html.Div(id='output-route', style={'marginTop': '20px'}),
+    html.Div(id='output-info', style={'marginTop': '20px'}),
     dcc.Graph(id='route-graph', style={'height': '500px'})
 ])
 
 
 @app.callback(
-    [Output('output-route', 'children'), Output('route-graph', 'figure')],
+    [Output('output-info', 'children'), Output('route-graph', 'figure')],
     Input('optimize-button', 'n_clicks'),
-    [State('source-input', 'value'), State('city-input', 'value')]
+    [State('location-input', 'value'), State('city-input', 'value')]
 )
-def optimize_route(n_clicks, source, city):
+def fetch_route(n_clicks, location, city):
     try:
-        response = requests.get(
-            API_URL,
-            params={'source': source, 'city': city}
-        )
+        response = requests.get(API_URL, params={'location': location, 'city': city})
         if response.status_code == 200:
             data = response.json()
-            route = data.get('route', [])
-            return f"Optimized Route: {' → '.join(route)}", {}
+            hospital = data['nearest_hospital']
+            weather = data['weather']
+            return (
+                f"Nearest Hospital: {hospital} | Weather: {weather}",
+                {'layout': {'title': 'Optimized Route'}}
+            )
     except Exception as e:
         return f"❌ Error: {str(e)}", {}
 

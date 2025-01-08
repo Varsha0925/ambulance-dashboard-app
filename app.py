@@ -1,97 +1,153 @@
 import requests
-import networkx as nx
 from flask import Flask, request, jsonify
+import networkx as nx
+import os
 
 # Initialize Flask App
 app = Flask(__name__)
 
 # API Keys
-TRAFFIC_API_KEY = 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM'
-WEATHER_API_KEY = '48e41d4567a6897feb0096632fdc91c8'
-GEOCODING_API_KEY = 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM'
+TRAFFIC_API_KEY = os.getenv('TRAFFIC_API_KEY', 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM')
+WEATHER_API_KEY = os.getenv('WEATHER_API_KEY', '48e41d4567a6897feb0096632fdc91c8')
+GEOCODING_API_KEY = os.getenv('GEOCODING_API_KEY', 'AIzaSyBfgFUm0h-tpdRKfGkbhXIDhJih6ixfSJM')
 
 # API Endpoints
 TRAFFIC_API_URL = 'https://maps.googleapis.com/maps/api/directions/json'
 WEATHER_API_URL = 'https://api.openweathermap.org/data/2.5/weather'
 GEOCODING_API_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
 
-# Sample Graph for Vijayawada Map with Hospitals
-G = nx.Graph()
-locations = {
-    'Accident Site': (16.5062, 80.6480),
-    'Hospital 1': (16.5101, 80.6350),
-    'Hospital 2': (16.5211, 80.6450),
-    'Hospital 3': (16.4990, 80.6570)
+# Define Hospital Locations (Latitude, Longitude)
+HOSPITALS = {
+    'Government General Hospital': (16.5062, 80.6480),
+    'Andhra Hospital': (16.5101, 80.6350),
+    'Manipal Hospital': (16.5211, 80.6450),
+    'Ramesh Hospitals': (16.4990, 80.6570),
+    'Vijaya Super Speciality Hospital': (16.5050, 80.6440)
 }
 
-# Add edges with default weights
-# Add Accident Prone Areas to Graph
-G.add_edge('Benz Circle', 'Government General Hospital', weight=1)
-G.add_edge('Eluru Road', 'Andhra Hospital', weight=1.5)
-G.add_edge('Prakasam Barrage', 'Manipal Hospital', weight=2)
-G.add_edge('Autonagar', 'Ramesh Hospitals', weight=1.2)
-G.add_edge('Kanaka Durga Flyover', 'Vijaya Super Speciality Hospital', weight=1.3)
+
+# 📍 1️⃣ Geocode Accident Location
+def get_coordinates_from_location(location_name):
+    try:
+        response = requests.get(
+            GEOCODING_API_URL,
+            params={
+                'address': location_name,
+                'key': GEOCODING_API_KEY
+            }
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if 'results' in data and len(data['results']) > 0:
+                location = data['results'][0]['geometry']['location']
+                return location['lat'], location['lng']
+    except Exception as e:
+        print("Geocoding API Error:", e)
+    return None, None
 
 
-
-# 📍 Real-Time Traffic Data
+# 🚦 2️⃣ Real-Time Traffic Data Fetching
 def get_realtime_traffic_data(origin, destination):
     try:
         response = requests.get(
             TRAFFIC_API_URL,
-            params={'origin': origin, 'destination': destination, 'key': TRAFFIC_API_KEY}
+            params={
+                'origin': origin,
+                'destination': destination,
+                'key': TRAFFIC_API_KEY
+            }
         )
         if response.status_code == 200:
             data = response.json()
             routes = data.get('routes', [])
             if routes:
                 return routes[0]['legs'][0]['duration_in_traffic']['value'] / 60  # Return in minutes
-        return 10
     except Exception as e:
-        print("Traffic API Exception:", e)
-        return 10
+        print("Traffic API Error:", e)
+    return 10
 
 
-# 🌦️ Real-Time Weather Data
+# 🌦️ 3️⃣ Real-Time Weather Data Fetching
 def get_realtime_weather_data(city):
     try:
         response = requests.get(
             WEATHER_API_URL,
-            params={'q': city, 'appid': WEATHER_API_KEY, 'units': 'metric'}
+            params={
+                'q': city,
+                'appid': WEATHER_API_KEY,
+                'units': 'metric'
+            }
         )
         if response.status_code == 200:
             data = response.json()
             return data['weather'][0]['main']
     except Exception as e:
-        print("Weather API Exception:", e)
+        print("Weather API Error:", e)
     return 'Clear'
 
 
-# 🗺️ Optimize Route
-def optimize_route(accident_site, city):
-    weather = get_realtime_weather_data(city)
-    routes = {}
-
-    for hospital in ['Hospital 1', 'Hospital 2', 'Hospital 3']:
-        traffic_penalty = get_realtime_traffic_data(accident_site, hospital)
-        weather_penalty = 1.5 if weather != 'Clear' else 1.0
-        G[accident_site][hospital]['weight'] *= traffic_penalty * weather_penalty
-
-        path = nx.shortest_path(G, source=accident_site, target=hospital, weight='weight')
-        routes[hospital] = path
-
-    best_hospital = min(routes, key=lambda h: nx.shortest_path_length(G, accident_site, h, weight='weight'))
-    return routes[best_hospital]
+# 🏥 4️⃣ Find Nearest Hospital
+def find_nearest_hospital(accident_lat, accident_lon):
+    nearest_hospital = None
+    shortest_distance = float('inf')
+    
+    for hospital, (lat, lon) in HOSPITALS.items():
+        distance = ((accident_lat - lat)**2 + (accident_lon - lon)**2)**0.5
+        if distance < shortest_distance:
+            shortest_distance = distance
+            nearest_hospital = hospital
+            
+    return nearest_hospital, HOSPITALS[nearest_hospital]
 
 
-# 🚑 API Endpoint
+# 🚑 5️⃣ Optimize Route
+def get_optimized_route(source, destination):
+    try:
+        response = requests.get(
+            TRAFFIC_API_URL,
+            params={
+                'origin': source,
+                'destination': destination,
+                'key': TRAFFIC_API_KEY
+            }
+        )
+        if response.status_code == 200:
+            data = response.json()
+            routes = data.get('routes', [])
+            if routes:
+                return routes[0]['overview_polyline']['points']
+    except Exception as e:
+        print("Route Optimization Error:", e)
+    return None
+
+
+# 🚦 6️⃣ API Endpoint for Route Optimization
 @app.route('/optimize', methods=['GET'])
-def get_route():
-    accident_location = request.args.get('source', 'Accident Site')
+def optimize_route():
+    accident_location = request.args.get('location')
     city = request.args.get('city', 'Vijayawada')
 
-    route = optimize_route(accident_location, city)
-    return jsonify({'route': route})
+    # Get Coordinates from Accident Location
+    accident_lat, accident_lon = get_coordinates_from_location(accident_location)
+    if accident_lat is None or accident_lon is None:
+        return jsonify({'error': 'Invalid accident location'}), 400
+
+    # Find Nearest Hospital
+    nearest_hospital, (hospital_lat, hospital_lon) = find_nearest_hospital(accident_lat, accident_lon)
+
+    # Get Real-time Weather
+    weather = get_realtime_weather_data(city)
+
+    # Get Optimized Route
+    source = f"{accident_lat},{accident_lon}"
+    destination = f"{hospital_lat},{hospital_lon}"
+    route = get_optimized_route(source, destination)
+
+    return jsonify({
+        'nearest_hospital': nearest_hospital,
+        'weather': weather,
+        'route_polyline': route
+    })
 
 
 if __name__ == '__main__':
