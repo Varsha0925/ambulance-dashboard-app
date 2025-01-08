@@ -25,11 +25,13 @@ locations = {
 }
 
 # Add edges with default weights
-G.add_edge('Accident Site', 'Hospital 1', weight=1)
-G.add_edge('Accident Site', 'Hospital 2', weight=2)
-G.add_edge('Accident Site', 'Hospital 3', weight=1.5)
-G.add_edge('Hospital 1', 'Hospital 2', weight=1)
-G.add_edge('Hospital 2', 'Hospital 3', weight=1.2)
+# Add Accident Prone Areas to Graph
+G.add_edge('Benz Circle', 'Government General Hospital', weight=1)
+G.add_edge('Eluru Road', 'Andhra Hospital', weight=1.5)
+G.add_edge('Prakasam Barrage', 'Manipal Hospital', weight=2)
+G.add_edge('Autonagar', 'Ramesh Hospitals', weight=1.2)
+G.add_edge('Kanaka Durga Flyover', 'Vijaya Super Speciality Hospital', weight=1.3)
+
 
 
 # 📍 Real-Time Traffic Data
